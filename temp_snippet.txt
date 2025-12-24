@@ -4,11 +4,11 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'github_client.dart';
 
 void main() {
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  MyApp({super.key, GitHubClient? client, GitHubTokenStore? tokenStore})
+  const MyApp({super.key, GitHubClient? client, GitHubTokenStore? tokenStore})
       : _client = client ?? GitHubClient(),
         _tokenStore = tokenStore ?? const SecureTokenStore();
 
@@ -233,9 +233,7 @@ class _RepoListPageState extends State<RepoListPage> {
         actions: [
           IconButton(
             tooltip: 'Sign out',
-            onPressed: () {
-              widget.onSignOut();
-            },
+            onPressed: () => widget.onSignOut(),
             icon: const Icon(Icons.logout),
           ),
         ],
@@ -262,13 +260,13 @@ class _RepoListPageState extends State<RepoListPage> {
             }
             if (snapshot.hasError) {
               return _ErrorView(
-                message: 'Failed to load repositories: ${snapshot.error}',
+                message: 'リポジトリの取得に失敗しました: ${snapshot.error}',
                 onRetry: _refresh,
               );
             }
             final repos = snapshot.data ?? [];
             if (repos.isEmpty) {
-              return const Center(child: Text('No private repositories found'));
+              return const Center(child: Text('プライベ�Eトリポジトリが見つかりません'));
             }
             return ListView.separated(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -320,246 +318,3 @@ class RepoDetailPage extends StatefulWidget {
   final String path;
 
   @override
-  State<RepoDetailPage> createState() => _RepoDetailPageState();
-}
-
-class _RepoDetailPageState extends State<RepoDetailPage> {
-  late Future<List<RepoContent>> _contentsFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _contentsFuture = _load();
-  }
-
-  Future<List<RepoContent>> _load() {
-    return widget.client.fetchContents(
-      owner: widget.repo.owner,
-      repo: widget.repo.name,
-      path: widget.path,
-      ref: widget.repo.defaultBranch,
-    );
-  }
-
-  Future<void> _refresh() async {
-    setState(() {
-      _contentsFuture = _load();
-    });
-    await _contentsFuture;
-  }
-
-  String _childPath(String child) {
-    if (widget.path.isEmpty) return child;
-    return '${widget.path}/$child';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final titlePath = widget.path.isEmpty ? widget.repo.name : '${widget.repo.name}/${widget.path}';
-    return Scaffold(
-      appBar: AppBar(title: Text(titlePath)),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: FutureBuilder<List<RepoContent>>(
-          future: _contentsFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return _ErrorView(
-                message: 'Failed to load content: ${snapshot.error}',
-                onRetry: _refresh,
-              );
-            }
-            final items = snapshot.data ?? [];
-            if (items.isEmpty) {
-              return const Center(child: Text('No content at this path'));
-            }
-            return ListView.builder(
-              itemCount: items.length,
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return ListTile(
-                  leading: Icon(item.isDirectory ? Icons.folder : Icons.insert_drive_file),
-                  title: Text(item.name),
-                  subtitle: Text(item.isDirectory ? 'Directory' : 'File - ${item.size} bytes'),
-                  onTap: () {
-                    if (item.isDirectory) {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => RepoDetailPage(
-                            repo: widget.repo,
-                            client: widget.client,
-                            path: _childPath(item.name),
-                          ),
-                        ),
-                      );
-                    } else {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => FileViewerPage(
-                            repo: widget.repo,
-                            client: widget.client,
-                            path: _childPath(item.name),
-                          ),
-                        ),
-                      );
-                    }
-                  },
-                );
-              },
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
-class FileViewerPage extends StatefulWidget {
-  const FileViewerPage({
-    super.key,
-    required this.repo,
-    required this.client,
-    required this.path,
-  });
-
-  final GitHubRepo repo;
-  final GitHubClient client;
-  final String path;
-
-  @override
-  State<FileViewerPage> createState() => _FileViewerPageState();
-}
-
-class _FileViewerPageState extends State<FileViewerPage> {
-  late Future<RepoContent> _fileFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _fileFuture = _loadFile();
-  }
-
-  Future<RepoContent> _loadFile() async {
-    final contents = await widget.client.fetchContents(
-      owner: widget.repo.owner,
-      repo: widget.repo.name,
-      path: widget.path,
-      ref: widget.repo.defaultBranch,
-    );
-    if (contents.isEmpty) {
-      throw StateError('No content returned');
-    }
-    return contents.first;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.path)),
-      body: FutureBuilder<RepoContent>(
-        future: _fileFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return _ErrorView(
-              message: 'Failed to load file: ${snapshot.error}',
-              onRetry: () async {
-                setState(() {
-                  _fileFuture = _loadFile();
-                });
-              },
-            );
-          }
-          final content = snapshot.data;
-          if (content == null) {
-            return const Center(child: Text('File not found'));
-          }
-          final decoded = content.decodedContent ?? 'This file cannot be displayed.';
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: SingleChildScrollView(
-              child: SelectableText(decoded),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _ErrorView extends StatelessWidget {
-  const _ErrorView({required this.message, required this.onRetry});
-
-  final String message;
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(message, textAlign: TextAlign.center),
-            const SizedBox(height: 8),
-            ElevatedButton.icon(
-              onPressed: () {
-                onRetry();
-              },
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-abstract class GitHubTokenStore {
-  Future<String?> readToken();
-
-  Future<void> writeToken(String token);
-
-  Future<void> clear();
-}
-
-class SecureTokenStore implements GitHubTokenStore {
-  const SecureTokenStore({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
-
-  final FlutterSecureStorage _storage;
-  static const _tokenKey = 'github_token';
-
-  @override
-  Future<void> clear() => _storage.delete(key: _tokenKey);
-
-  @override
-  Future<String?> readToken() => _storage.read(key: _tokenKey);
-
-  @override
-  Future<void> writeToken(String token) => _storage.write(key: _tokenKey, value: token);
-}
-
-class InMemoryTokenStore implements GitHubTokenStore {
-  String? _token;
-
-  @override
-  Future<void> clear() async {
-    _token = null;
-  }
-
-  @override
-  Future<String?> readToken() async => _token;
-
-  @override
-  Future<void> writeToken(String token) async {
-    _token = token;
-  }
-}
