@@ -457,38 +457,78 @@ class _FileViewerPageState extends State<FileViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.path)),
-      body: FutureBuilder<RepoContent>(
-        future: _fileFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return _ErrorView(
-              message: 'Failed to load file: ${snapshot.error}',
-              onRetry: () async {
-                setState(() {
-                  _fileFuture = _loadFile();
-                });
-              },
+    return FutureBuilder<RepoContent>(
+      future: _fileFuture,
+      builder: (context, snapshot) {
+        final actions = <Widget>[];
+        if (snapshot.hasData) {
+          final content = snapshot.data!;
+          final canEdit = content.isFile && content.decodedContent != null;
+          if (canEdit) {
+            actions.add(
+              IconButton(
+                tooltip: 'Edit',
+                onPressed: () => _openEditor(content),
+                icon: const Icon(Icons.edit),
+              ),
             );
           }
-          final content = snapshot.data;
-          if (content == null) {
-            return const Center(child: Text('File not found'));
-          }
-          final decoded = content.decodedContent ?? 'This file cannot be displayed.';
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: SingleChildScrollView(
-              child: SelectableText(decoded),
-            ),
-          );
-        },
+        }
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(widget.path),
+            actions: actions,
+          ),
+          body: Builder(
+            builder: (context) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return _ErrorView(
+                  message: 'Failed to load file: ${snapshot.error}',
+                  onRetry: () async {
+                    setState(() {
+                      _fileFuture = _loadFile();
+                    });
+                  },
+                );
+              }
+              final content = snapshot.data;
+              if (content == null) {
+                return const Center(child: Text('File not found'));
+              }
+              final decoded = content.decodedContent ?? 'This file cannot be displayed.';
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: SingleChildScrollView(
+                  child: SelectableText(decoded),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openEditor(RepoContent content) async {
+    final updated = await Navigator.of(context).push<RepoContent>(
+      MaterialPageRoute(
+        builder: (_) => FileEditorPage(
+          repo: widget.repo,
+          client: widget.client,
+          path: widget.path,
+          content: content,
+        ),
       ),
     );
+    if (!mounted) return;
+    if (updated != null) {
+      setState(() {
+        _fileFuture = Future.value(updated);
+      });
+    }
   }
 }
 
@@ -515,6 +555,116 @@ class _ErrorView extends StatelessWidget {
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
             )
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class FileEditorPage extends StatefulWidget {
+  const FileEditorPage({
+    super.key,
+    required this.repo,
+    required this.client,
+    required this.path,
+    required this.content,
+  });
+
+  final GitHubRepo repo;
+  final GitHubClient client;
+  final String path;
+  final RepoContent content;
+
+  @override
+  State<FileEditorPage> createState() => _FileEditorPageState();
+}
+
+class _FileEditorPageState extends State<FileEditorPage> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.content.decodedContent ?? '');
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final updated = await widget.client.updateFile(
+        owner: widget.repo.owner,
+        repo: widget.repo.name,
+        path: widget.path,
+        content: _controller.text,
+        sha: widget.content.sha,
+        branch: widget.repo.defaultBranch,
+        message: 'Update ${widget.path}',
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(updated);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = error.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Edit ${widget.path}'),
+        actions: [
+          TextButton.icon(
+            onPressed: _saving ? null : _save,
+            icon: _saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save),
+            label: const Text('Save'),
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _controller,
+                maxLines: null,
+                expands: true,
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                  hintText: 'Edit file content',
+                ),
+                style: const TextStyle(fontFamily: 'monospace'),
+                enabled: !_saving,
+              ),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            ],
           ],
         ),
       ),

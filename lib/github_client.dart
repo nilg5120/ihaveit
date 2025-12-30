@@ -72,6 +72,39 @@ class GitHubClient {
     throw const FormatException('Unexpected content payload');
   }
 
+  Future<RepoContent> updateFile({
+    required String owner,
+    required String repo,
+    required String path,
+    required String content,
+    required String sha,
+    required String branch,
+    String? message,
+  }) async {
+    final uri = Uri.https('api.github.com', '/repos/$owner/$repo/contents/$path');
+    final payload = <String, dynamic>{
+      'message': message ?? 'Update $path',
+      'content': base64.encode(utf8.encode(content)),
+      'sha': sha,
+      'branch': branch,
+    };
+    final response = await _httpClient.put(
+      uri,
+      headers: {
+        ..._headers(),
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: jsonEncode(payload),
+    );
+    _throwIfError(response);
+    final body = jsonDecode(response.body);
+    final contentJson = body is Map<String, dynamic> ? body['content'] as Map<String, dynamic>? : null;
+    if (contentJson != null) {
+      return RepoContent.fromJson(contentJson);
+    }
+    throw const FormatException('Unexpected update response');
+  }
+
   void _throwIfError(http.Response response) {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return;
@@ -133,18 +166,22 @@ class RepoContent {
     required this.path,
     required this.type,
     required this.size,
+    required this.sha,
     required this.encoding,
     required this.content,
     required this.downloadUrl,
+    required this.url,
   });
 
   final String name;
   final String path;
   final String type; // "file" | "dir"
   final int size;
+  final String sha;
   final String? encoding;
   final String? content;
   final String? downloadUrl;
+  final String? url;
 
   factory RepoContent.fromJson(Map<String, dynamic> json) {
     return RepoContent(
@@ -152,13 +189,16 @@ class RepoContent {
       path: json['path'] as String? ?? '',
       type: json['type'] as String? ?? 'file',
       size: json['size'] as int? ?? 0,
+      sha: json['sha'] as String? ?? '',
       encoding: json['encoding'] as String?,
       content: json['content'] as String?,
       downloadUrl: json['download_url'] as String?,
+      url: json['url'] as String?,
     );
   }
 
   bool get isDirectory => type == 'dir';
+  bool get isFile => type == 'file';
 
   String? get decodedContent {
     if (content == null || encoding != 'base64') {
